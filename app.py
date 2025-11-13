@@ -3,59 +3,86 @@ import requests
 import json
 import os
 
-CLIENT_ID = 'your_client_id'
-TENANT_ID = 'your_tenant_id'
-AUTHORITY = f'https://login.microsoftonline.com/{TENANT_ID}'
-SCOPES = ['https://graph.microsoft.com/.default']
-GRAPH_API_ENDPOINT='https://graph.microsoft.com/v1.0/me/messages'
+# --- Configuration (REPLACE THESE WITH YOUR VALUES) ---
+# You can use a dedicated file for secrets, but for simplicity, we'll keep them here.
+CLIENT_ID = "YOUR_APPLICATION_CLIENT_ID_HERE"
+TENANT_ID = "YOUR_DIRECTORY_TENANT_ID_HERE"
 
-def get_access_token():
-    app=msal.PublicClientApplication(
-        CLIENT_ID,
+AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+SCOPE = ["https://graph.microsoft.com/.default"] # Used for acquiring the token
+GRAPH_API_ENDPOINT = 'https://graph.microsoft.com/v1.0/me/messages'
+
+def acquire_access_token():
+    """Acquires an access token for Microsoft Graph using Device Code Flow."""
+    
+    # Initialize the MSAL Public Client Application
+    app = msal.PublicClientApplication(
+        CLIENT_ID, 
         authority=AUTHORITY
     )
-    flow = app.initiate_device_flow(scopes=SCOPES)
-    if 'user_code' not in flow:
-        raise ValueError('Failed to create device flow')
-    print("---AUTHENTICATION REQUIRED---")
-    print(f"1. Open your browser to: {flow['verification_url']}")
+
+    # Initiate the Device Code Flow
+    flow = app.initiate_device_flow(scopes=SCOPE)
+    if "user_code" not in flow:
+        raise ValueError("Failed to initiate device flow.")
+    
+    print("--- AUTHENTICATION REQUIRED ---")
+    print(f"1. Open your web browser to: {flow['verification_uri']}")
     print(f"2. Enter the code: {flow['user_code']}")
-    print("-----------------------------")
+    print("------------------------------")
+
+    # Wait for the user to authenticate
     result = app.acquire_token_by_device_flow(flow)
-    if 'access_token' in result:
+    
+    if "access_token" in result:
         return result['access_token']
     else:
         print(f"Error during authentication: {result.get('error_description')}")
         return None
-def get_user_emails(access_toke):
-    headers={
-        'Authorization': f'bearer {token}',
-        'Content-Type': 'application/json'
+
+def get_emails(token):
+    """Fetches the latest emails using the acquired access token."""
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/json'
     }
-    params ={
+    
+    # Request the top 5 messages, selecting only the subject, sender, and body preview
+    params = {
         '$top': 5,
-        '$select': 'Subject, sender, bodyPreview'
+        '$select': 'subject,sender,bodyPreview'
     }
-    print("\n Attemptin to fetch emails from Microsoft Graph...")
+
+    print("\nAttempting to fetch emails from Microsoft Graph...")
+    
     try:
-        response= requests.get(GRAPH_API_ENDPOINT, headers=headers, params=params)
-        response.raise_for_status()
-        data=response.json()
-        print(f"\nSuccessfully retrieved {len(data.get('value',[]))} emails:\n")
+        response = requests.get(GRAPH_API_ENDPOINT, headers=headers, params=params)
+        response.raise_for_status() # Raises an HTTPError for bad responses (4xx or 5xx)
+        
+        data = response.json()
+        
+        print(f"\nSuccessfully retrieved {len(data.get('value', []))} emails:\n")
+        
         for email in data.get('value', []):
-            print(f" Subject: {email.get('subject')}")
-            print(f" From: {email.get('sender', {}).get('emailAddress', {}).get('address')}")
-            print(f" Preview: {email.get('bodyPreview')[:70]}...")
+            print(f"  Subject: {email.get('subject')}")
+            print(f"  From: {email.get('sender', {}).get('emailAddress', {}).get('address')}")
+            print(f"  Preview: {email.get('bodyPreview')[:70]}...")
             print("-" * 50)
-        except requests.exceptions.HTTPError as e:
-            print(f"\nHTTP Error fetching emails: {e}")
-            print(f"Check if you granted admin consent for email. read permissions.")
-        except Exceptions as e:
-            print(f"\nAn error occured: {e}")
+            
+    except requests.exceptions.HTTPError as e:
+        print(f"\nHTTP Error fetching emails: {e}")
+        print("Check if you granted admin consent for the Mail.Read permission.")
+    except Exception as e:
+        print(f"\nAn error occurred: {e}")
+
 
 if __name__ == '__main__':
-    access_token = get_access_token()
+    # 1. Acquire Token
+    access_token = acquire_access_token()
+
     if access_token:
+        # 2. Get Emails
         get_emails(access_token)
     else:
-        print("Failed to require access token. Cannot proceed.")
+        print("Failed to acquire access token. Cannot proceed.")
